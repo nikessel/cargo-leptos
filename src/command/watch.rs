@@ -100,6 +100,12 @@ pub async fn runner(proj: &Arc<Project>) -> Result<()> {
         trace!("Build step done with changes: {set}");
     }
 
+    // Apply file hashing if enabled and frontend assets changed
+    if proj.hash_files && (set.contains(&Product::Front) || set.only_style()) {
+        compile::add_hashes_to_site(proj)?;
+        debug!("Applied file hashing after rebuild");
+    }
+
     if set.contains(&Product::Server) {
         // send product change, then the server will send the reload once it has restarted
         ServerRestart::send();
