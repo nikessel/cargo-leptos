@@ -11,6 +11,9 @@ use std::{collections::HashMap, fs};
 
 ///Adds hashes to the filenames of the css, js, and wasm files in the output
 pub fn add_hashes_to_site(proj: &Project) -> Result<()> {
+    // Clean up old hashed files before applying new hashes (important for watch mode)
+    clean_old_hashed_files(proj)?;
+
     let files_to_hashes = compute_front_file_hashes(proj).dot()?;
 
     debug!("Hash computed: {files_to_hashes:?}");
@@ -111,6 +114,40 @@ pub fn add_hashes_to_site(proj: &Project) -> Result<()> {
     .wrap_err_with(|| format!("Failed to write hash file to {}", proj.hash_file.abs))?;
 
     debug!("Hash written to {}", proj.hash_file.abs);
+
+    Ok(())
+}
+
+/// Cleans up old hashed files from previous builds (important for watch mode)
+fn clean_old_hashed_files(proj: &Project) -> Result<()> {
+    let pkg_dir = proj.site.root_relative_pkg_dir();
+    let output_name = &proj.lib.output_name;
+
+    if let Ok(entries) = fs::read_dir(&pkg_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                if let Some(filename) = path.file_name().and_then(|f| f.to_str()) {
+                    // Check if this is a hashed file: {output_name}.{hash}.{ext}
+                    // Hash is 22 characters of base64url
+                    if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                        // Check if stem starts with output_name followed by a dot
+                        if let Some(after_name) = stem.strip_prefix(&format!("{output_name}.")) {
+                            // Check if what follows is a 22-character base64url hash
+                            if after_name.len() == 22 && after_name.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+                                // This is a hashed file from a previous build - delete it
+                                if let Err(e) = fs::remove_file(&path) {
+                                    warn!("Failed to remove old hashed file {}: {}", filename, e);
+                                } else {
+                                    debug!("Removed old hashed file: {}", filename);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     Ok(())
 }
